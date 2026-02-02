@@ -1,62 +1,80 @@
 import { useState, useRef } from 'react'
+import { extractTextFromImage, parseWineLabel } from '../lib/ocr'
 
 export default function OCRCapture({ onComplete, onCancel }) {
   const [capturedImage, setCapturedImage] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [extractedText, setExtractedText] = useState('')
+  const [progress, setProgress] = useState(0)
+  const [extractedData, setExtractedData] = useState(null)
+  const [error, setError] = useState('')
   const fileInputRef = useRef(null)
 
   const handleCapture = (e) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Verifica dimensione (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        setError('Immagine troppo grande. Massimo 10MB.')
+        return
+      }
+      
+      setError('')
       const reader = new FileReader()
       reader.onloadend = () => {
         setCapturedImage(reader.result)
-        simulateOCR(reader.result)
+        processImage(reader.result)
       }
       reader.readAsDataURL(file)
     }
   }
 
-  // Mock OCR - in produzione verrà sostituito con Apple Vision o API cloud
-  const simulateOCR = async (imageData) => {
+  const processImage = async (imageData) => {
     setIsProcessing(true)
+    setProgress(0)
+    setError('')
     
-    // Simula latenza OCR
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    
-    // Mock: in produzione qui ci sarà la vera estrazione
-    // L'OCR estrarrà il testo dall'etichetta che l'utente potrà poi verificare
-    const mockExtractedText = `[Testo estratto dall'etichetta]
-    
-Questo è un placeholder. In produzione:
-- Su iOS: Apple Vision Framework estrarrà il testo
-- Su Web: Google Cloud Vision o Tesseract.js
-
-L'AI può poi analizzare il testo per identificare:
-- Nome del vino
-- Produttore
-- Annata
-- Regione
-- Denominazione`
-
-    setExtractedText(mockExtractedText)
-    setIsProcessing(false)
+    try {
+      // Estrai testo con Tesseract
+      const text = await extractTextFromImage(imageData, setProgress)
+      
+      if (!text || text.trim().length < 5) {
+        setError('Nessun testo rilevato. Prova con un\'immagine più nitida.')
+        setIsProcessing(false)
+        return
+      }
+      
+      // Parsing base del testo
+      const parsed = parseWineLabel(text)
+      parsed.photo = imageData // Includi la foto
+      
+      setExtractedData(parsed)
+    } catch (err) {
+      console.error('OCR Error:', err)
+      setError('Errore durante l\'analisi. Riprova.')
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   const handleConfirm = () => {
-    // Mock: parsing del testo estratto
-    // In produzione l'AI (o regex avanzate) identificherà i campi
-    const mockParsedData = {
-      name: '',
-      producer: '',
-      vintage: null,
-      region: '',
-      // La foto verrà passata per essere salvata
-      photo: capturedImage,
+    if (extractedData) {
+      onComplete({
+        name: extractedData.name || '',
+        producer: extractedData.producer || '',
+        vintage: extractedData.vintage,
+        region: extractedData.region || '',
+        photo: extractedData.photo,
+        // Passa anche il testo raw per eventuale uso futuro con LLM
+        _ocrRawText: extractedData.rawText,
+      })
     }
-    
-    onComplete(mockParsedData)
+  }
+
+  const handleRetry = () => {
+    setCapturedImage(null)
+    setExtractedData(null)
+    setError('')
+    setProgress(0)
   }
 
   return (
@@ -69,6 +87,12 @@ L'AI può poi analizzare il testo per identificare:
           Scatta una foto dell'etichetta per estrarre automaticamente le informazioni
         </p>
       </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          {error}
+        </div>
+      )}
 
       {!capturedImage ? (
         <div className="space-y-4">
@@ -133,20 +157,56 @@ L'AI può poi analizzare il testo per identificare:
             {isProcessing && (
               <div className="absolute inset-0 bg-oak-900/50 flex items-center justify-center">
                 <div className="text-center text-white">
-                  <div className="w-10 h-10 border-3 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>
-                  <p className="mt-3 font-medium">Analisi in corso...</p>
+                  <div className="w-12 h-12 mx-auto mb-3">
+                    <svg className="animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  </div>
+                  <p className="font-medium">Analisi in corso...</p>
+                  <p className="text-sm text-white/80 mt-1">{progress}%</p>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Extracted text */}
-          {extractedText && !isProcessing && (
-            <div className="bg-cream-100 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-oak-700 mb-2">Testo estratto:</h4>
-              <pre className="text-sm text-oak-600 whitespace-pre-wrap font-sans">
-                {extractedText}
-              </pre>
+          {/* Extracted data preview */}
+          {extractedData && !isProcessing && (
+            <div className="bg-cream-100 rounded-lg p-4 space-y-3">
+              <h4 className="text-sm font-medium text-oak-700">Dati estratti:</h4>
+              
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-oak-500">Nome:</span>
+                  <p className="font-medium text-oak-800">{extractedData.name || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-oak-500">Produttore:</span>
+                  <p className="font-medium text-oak-800">{extractedData.producer || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-oak-500">Annata:</span>
+                  <p className="font-medium text-oak-800">{extractedData.vintage || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-oak-500">Regione:</span>
+                  <p className="font-medium text-oak-800">{extractedData.region || '—'}</p>
+                </div>
+              </div>
+
+              {/* Raw text collapsible */}
+              <details className="text-xs">
+                <summary className="text-oak-500 cursor-pointer hover:text-oak-700">
+                  Mostra testo grezzo
+                </summary>
+                <pre className="mt-2 p-2 bg-white rounded text-oak-600 whitespace-pre-wrap overflow-auto max-h-32">
+                  {extractedData.rawText}
+                </pre>
+              </details>
+
+              <p className="text-xs text-oak-500 italic">
+                💡 Potrai modificare i dati nel form prima di salvare
+              </p>
             </div>
           )}
 
@@ -155,10 +215,7 @@ L'AI può poi analizzare il testo per identificare:
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  setCapturedImage(null)
-                  setExtractedText('')
-                }}
+                onClick={handleRetry}
                 className="btn btn-secondary flex-1"
               >
                 Riprova
@@ -166,9 +223,10 @@ L'AI può poi analizzare il testo per identificare:
               <button
                 type="button"
                 onClick={handleConfirm}
+                disabled={!extractedData}
                 className="btn btn-primary flex-1"
               >
-                Usa questa foto
+                Usa questi dati
               </button>
             </div>
           )}
