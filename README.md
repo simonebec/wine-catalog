@@ -1,108 +1,105 @@
-# Wine Catalog - Frontend React
+# Wine Catalog
 
 App per catalogare la tua collezione di vini con OCR e chat AI.
 
-## Prerequisiti
+## Stack
 
-- Node.js 18+ 
-- npm o yarn
+- **Frontend**: React 18 + Vite
+- **Styling**: Tailwind CSS
+- **Backend/Auth/DB**: Supabase
+- **Hosting**: Vercel
 
-## Installazione
+## Funzionalità
+
+- ✅ Autenticazione (login, registrazione, reset password)
+- ✅ Catalogo vini con filtri per tipologia e ricerca testuale
+- ✅ Dettaglio vino in modal
+- ✅ Aggiungi/Modifica/Elimina vini
+- ✅ Upload foto vini su Supabase Storage
+- ✅ Responsive (desktop/tablet/mobile)
+- 🚧 OCR etichette (UI pronta, da collegare a Apple Vision o API cloud)
+- 🚧 Chat AI sommelier (UI pronta, da collegare a Groq/LLM)
+
+## Setup locale
 
 ```bash
-# Clona o copia il progetto, poi:
+# Clona il repo
+git clone git@github.com:simonebec/wine-catalog.git
 cd wine-catalog
 
-# Installa le dipendenze
+# Installa dipendenze
 npm install
-```
 
-## Dipendenze richieste
+# Configura variabili d'ambiente
+cp .env.example .env
+# Modifica .env con le tue credenziali Supabase
 
-Il progetto usa queste librerie (da installare):
-
-```bash
-npm install react react-dom react-router-dom
-npm install -D vite @vitejs/plugin-react
-npm install -D tailwindcss postcss autoprefixer
-```
-
-### Configurazione Tailwind
-
-Dopo l'installazione, inizializza Tailwind:
-
-```bash
-npx tailwindcss init -p
-```
-
-## Struttura progetto
-
-```
-wine-catalog/
-├── index.html
-├── vite.config.js
-├── tailwind.config.js
-├── postcss.config.js
-├── src/
-│   ├── main.jsx          # Entry point
-│   ├── App.jsx           # Router e layout principale
-│   ├── index.css         # Stili globali + Tailwind
-│   ├── components/
-│   │   ├── Navbar.jsx
-│   │   ├── WineCard.jsx
-│   │   ├── WineForm.jsx
-│   │   ├── WineModal.jsx
-│   │   ├── ChatPanel.jsx
-│   │   ├── OCRCapture.jsx
-│   │   └── EmptyState.jsx
-│   ├── pages/
-│   │   ├── Catalog.jsx
-│   │   ├── AddWine.jsx
-│   │   ├── EditWine.jsx
-│   │   └── Chat.jsx
-│   ├── hooks/
-│   │   └── useWines.js   # Hook per gestione stato vini (mock)
-│   └── utils/
-│       └── mockData.js   # Dati di esempio
-```
-
-## Avvio development server
-
-```bash
+# Avvia dev server
 npm run dev
 ```
 
-Apri http://localhost:5173
+## Variabili d'ambiente
 
-## Build produzione
+Crea un file `.env` nella root:
 
-```bash
-npm run build
+```
+VITE_SUPABASE_URL=https://xxxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6...
 ```
 
-Output in `dist/` pronto per deploy su Vercel.
+## Supabase Setup
 
-## Note implementazione
+### Tabella `wines`
 
-### Stato attuale (frontend only)
+```sql
+create table wines (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users(id) on delete cascade,
+  name text not null,
+  producer text not null,
+  vintage integer,
+  type text,
+  region text,
+  quantity integer default 1,
+  price numeric,
+  position text,
+  notes text,
+  photo_url text,
+  created_at timestamp with time zone default now()
+);
 
-- **Dati**: mock locale in memoria, si resettano al refresh
-- **OCR**: UI pronta, logica da collegare a Apple Vision (iOS) o API cloud
-- **Chat AI**: UI pronta, da collegare a Groq via Supabase Edge Function
-- **Auth**: non presente, da aggiungere con Supabase Auth
+-- RLS: ogni utente vede solo i propri vini
+alter table wines enable row level security;
 
-### Prossimi step per backend
+create policy "Users can view own wines" on wines
+  for select using (auth.uid() = user_id);
 
-1. Creare progetto Supabase
-2. Configurare tabella `wines` con i campi
-3. Abilitare Storage per le foto
-4. Creare Edge Function per chat AI
-5. Sostituire mock con chiamate Supabase client
+create policy "Users can insert own wines" on wines
+  for insert with check (auth.uid() = user_id);
 
-## Funzionalità UI
+create policy "Users can update own wines" on wines
+  for update using (auth.uid() = user_id);
 
-- **Catalogo**: griglia responsive, filtri per tipologia, ricerca testo
-- **Dettaglio vino**: modal con tutte le info e foto
-- **Aggiungi/Modifica**: form con tutti i campi + OCR
-- **Chat AI**: pannello conversazione per query sul catalogo
-- **Responsive**: layout adattivo desktop/tablet/mobile
+create policy "Users can delete own wines" on wines
+  for delete using (auth.uid() = user_id);
+```
+
+### Storage bucket `wine-photos`
+
+1. Crea bucket `wine-photos` (public)
+2. Aggiungi policy per upload/lettura per utenti autenticati
+
+## Deploy su Vercel
+
+1. Push su GitHub
+2. Importa progetto su Vercel
+3. Aggiungi env variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`)
+4. Deploy
+
+## Scripts
+
+```bash
+npm run dev      # Dev server (localhost:5173)
+npm run build    # Build produzione (output: dist/)
+npm run preview  # Preview build locale
+```
