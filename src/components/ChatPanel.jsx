@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 
 export default function ChatPanel({ getCatalogText }) {
   const [messages, setMessages] = useState([
@@ -35,45 +36,40 @@ export default function ChatPanel({ getCatalogText }) {
     setInput('')
     setIsLoading(true)
 
-    // Mock AI response - in produzione sarà una chiamata a Groq via Edge Function
-    await simulateAIResponse(userMessage.content, getCatalogText())
-  }
+    try {
+      const catalogText = getCatalogText()
+      
+      const { data, error } = await supabase.functions.invoke('chat', {
+        body: { 
+          message: userMessage.content,
+          catalogText 
+        }
+      })
 
-  const simulateAIResponse = async (userQuery, catalogText) => {
-    // Simula latenza API
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000))
+      if (error) throw error
 
-    // Mock responses basate su parole chiave
-    let response = ''
-    const query = userQuery.toLowerCase()
-
-    if (query.includes('quant') && (query.includes('vino') || query.includes('bottigli'))) {
-      response = 'Nella tua cantina hai attualmente 6 vini diversi per un totale di 22 bottiglie. Hai principalmente rossi (3 etichette), oltre a bianchi, rosé e spumanti.'
-    } else if (query.includes('barolo') || query.includes('piemonte')) {
-      response = 'Hai un Barolo Riserva 2016 di Giacomo Conterno - un\'etichetta eccezionale! Con 7 anni di affinamento, è pronto per essere aperto ma può evolvere ancora fino al 2040. Perfetto con brasato, tartufo o formaggi stagionati.'
-    } else if (query.includes('abbina') || query.includes('cena') || query.includes('pesce') || query.includes('carne')) {
-      response = 'Per un abbinamento ti consiglierei:\n\n• **Pesce/frutti di mare**: Cervaro della Sala 2021 - lo Chardonnay con note burrose si sposa bene con piatti di pesce\n• **Carne rossa**: Tignanello 2019 o Brunello 2017 per carni importanti\n• **Aperitivo**: Franciacorta Satèn di Ca\' del Bosco\n\nHai qualcosa di specifico in mente?'
-    } else if (query.includes('valore') || query.includes('cost') || query.includes('prezzo')) {
-      response = 'Il valore totale stimato della tua cantina è di circa €1.296 basato sui prezzi che hai inserito. Il vino più pregiato è il Barolo Riserva di Conterno (€180 a bottiglia).'
-    } else if (query.includes('sugger') || query.includes('compra') || query.includes('manc')) {
-      response = 'Guardando la tua collezione, noto che hai ottimi rossi toscani e piemontesi. Potresti considerare di aggiungere:\n\n• Un Amarone della Valpolicella per i rossi veneti\n• Un Riesling altoatesino per i bianchi aromatici\n• Uno Champagne per occasioni speciali\n\nVuoi che ti dia qualche produttore consigliato?'
-    } else {
-      response = 'Questa è una risposta di esempio. In produzione, la tua domanda verrà inviata a Llama 3.3 via Groq insieme al catalogo completo della tua cantina:\n\n```\n' + catalogText.substring(0, 300) + '...\n```\n\nL\'AI potrà così rispondere con informazioni precise sui tuoi vini!'
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: data.reply
+      }])
+    } catch (error) {
+      console.error('Chat error:', error)
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'Mi dispiace, si è verificato un errore. Riprova tra qualche istante.'
+      }])
+    } finally {
+      setIsLoading(false)
     }
-
-    setMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      role: 'assistant',
-      content: response
-    }])
-    setIsLoading(false)
   }
 
   const suggestedQuestions = [
     'Quante bottiglie ho in cantina?',
     'Cosa abbino a una cena di pesce?',
-    'Parlami del mio Barolo',
-    'Qual è il valore della cantina?',
+    'Qual è il vino più pregiato che ho?',
+    'Consigliami un vino per stasera',
   ]
 
   return (
